@@ -1,0 +1,8 @@
+Feature: User Authentication
+Scenario: Successful login with valid credentials
+Given, The user is on the login page
+When, The user enters a valid username into the 'Username' field
+And, The user enters a valid password into the 'Password' field
+And, The user clicks the 'Login' button
+Then, The user should be redirected to the Dashboard page
+And, The user should see a welcome element on the Dashboard

@@ -1,0 +1,14 @@
+services:
+  ollama-ai:
+    image: ollama/ollama
+    container_name: ollama-codellama
+    ports:
+      - "11434:11434"
+    restart: always
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+
+volumes:
+  ollama_data:

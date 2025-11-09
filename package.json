@@ -1,0 +1,37 @@
+{
+  "name": "ai-local-codellama-agent",
+  "version": "1.0.0",
+  "description": "Interactive Node.js agent communicating with local Code Llama model via Ollama",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "dev": "node agent.js",
+    "setup": "setup.bat",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f ollama-ai",
+    "pull-model": "docker exec ollama-codellama ollama pull qwen2.5-coder:1.5b",
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run",
+    "test": "cypress run"
+  },
+  "keywords": [
+    "ollama",
+    "codellama",
+    "ai",
+    "cypress",
+    "coding-assistant"
+  ],
+  "author": "Krzysztof Dziadul",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2"
+  },
+  "devDependencies": {
+    "cypress": "^13.6.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
