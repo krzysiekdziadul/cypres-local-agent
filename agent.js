@@ -556,6 +556,12 @@ describe('Hello World Test', () => {
     }
 
     async generateRecommendations(failures) {
+        console.log(chalk.magenta('💡 SMART ANALYSIS - Checking React app code...'));
+        console.log(chalk.gray('─'.repeat(50)));
+        
+        // Analizuj kod React aplikacji
+        await this.analyzeReactAppCode(failures);
+        
         console.log(chalk.magenta('💡 RECOMMENDATIONS:'));
         console.log(chalk.gray('─'.repeat(50)));
         
@@ -576,6 +582,11 @@ describe('Hello World Test', () => {
                 recommendations.add('🔍 Check if error message text changed in the application');
                 recommendations.add('🔧 Verify authentication logic is working correctly');
             }
+            
+            if (failure.error.includes('Submit')) {
+                recommendations.add('🔍 Check actual button text in React components');
+                recommendations.add('🔧 Update test to use correct button text or selector');
+            }
         }
         
         // Add general recommendations
@@ -589,6 +600,163 @@ describe('Hello World Test', () => {
         
         console.log(chalk.gray('─'.repeat(50)));
         console.log(chalk.cyan('💬 You can ask me to fix specific issues or update tests!'));
+    }
+
+    async analyzeReactAppCode(failures) {
+        console.log(chalk.blue('🔍 REACT CODE ANALYSIS:'));
+        
+        try {
+            // Znajdź komponenty React
+            const reactComponents = await this.findReactComponents();
+            
+            for (const failure of failures) {
+                if (failure.error.includes('Submit')) {
+                    await this.analyzeSubmitButtonIssue(reactComponents, failure);
+                }
+                
+                if (failure.error.includes('Welcome Back')) {
+                    await this.analyzeWelcomeBackIssue(reactComponents, failure);
+                }
+                
+                if (failure.error.includes('Invalid email or password')) {
+                    await this.analyzeErrorMessageIssue(reactComponents, failure);
+                }
+            }
+            
+        } catch (error) {
+            console.log(chalk.yellow('⚠️ Could not analyze React code:'), error.message);
+        }
+        
+        console.log(chalk.gray('─'.repeat(30)));
+    }
+
+    async findReactComponents() {
+        const components = [];
+        const srcDir = path.join(process.cwd(), 'src');
+        
+        if (!fs.existsSync(srcDir)) {
+            console.log(chalk.yellow('⚠️ No src directory found - React app might not be in this location'));
+            return components;
+        }
+        
+        try {
+            const files = fs.readdirSync(srcDir, { recursive: true });
+            for (const file of files) {
+                if (file.endsWith('.jsx') || file.endsWith('.js')) {
+                    const fullPath = path.join(srcDir, file);
+                    components.push({
+                        name: file,
+                        path: fullPath,
+                        content: fs.readFileSync(fullPath, 'utf8')
+                    });
+                }
+            }
+        } catch (error) {
+            console.log(chalk.yellow('⚠️ Error reading React components:'), error.message);
+        }
+        
+        return components;
+    }
+
+    async analyzeSubmitButtonIssue(components, failure) {
+        console.log(chalk.yellow('🔍 Analyzing Submit button issue...'));
+        
+        for (const component of components) {
+            if (component.name.toLowerCase().includes('login') || 
+                component.content.toLowerCase().includes('login') ||
+                component.content.toLowerCase().includes('submit')) {
+                
+                console.log(chalk.blue(`📄 Checking component: ${component.name}`));
+                
+                // Szukaj buttonów
+                const buttonMatches = component.content.match(/<button[^>]*>([^<]*)<\/button>/gi);
+                if (buttonMatches) {
+                    console.log(chalk.green('🔍 Found buttons in component:'));
+                    buttonMatches.forEach((button, index) => {
+                        const text = button.replace(/<[^>]*>/g, '').trim();
+                        console.log(chalk.white(`  ${index + 1}. "${text}"`));
+                    });
+                }
+                
+                // Szukaj input type="submit"
+                const submitInputs = component.content.match(/<input[^>]*type=["']submit["'][^>]*>/gi);
+                if (submitInputs) {
+                    console.log(chalk.green('🔍 Found submit inputs:'));
+                    submitInputs.forEach((input, index) => {
+                        const valueMatch = input.match(/value=["']([^"']*)["']/);
+                        const value = valueMatch ? valueMatch[1] : 'No value attribute';
+                        console.log(chalk.white(`  ${index + 1}. value="${value}"`));
+                    });
+                }
+                
+                // Sprawdź czy jest "Submit" w kodzie
+                if (component.content.includes('Submit')) {
+                    console.log(chalk.green('✅ Found "Submit" text in component'));
+                } else {
+                    console.log(chalk.red('❌ "Submit" text NOT found in component'));
+                    
+                    // Szukaj alternatywnych tekstów
+                    const commonButtonTexts = ['Login', 'Sign In', 'Log In', 'Enter', 'Continue'];
+                    for (const text of commonButtonTexts) {
+                        if (component.content.includes(text)) {
+                            console.log(chalk.yellow(`💡 Found alternative: "${text}"`));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async analyzeWelcomeBackIssue(components, failure) {
+        console.log(chalk.yellow('🔍 Analyzing Welcome Back message issue...'));
+        
+        for (const component of components) {
+            if (component.content.includes('Welcome') || 
+                component.name.toLowerCase().includes('dashboard') ||
+                component.name.toLowerCase().includes('home')) {
+                
+                console.log(chalk.blue(`📄 Checking component: ${component.name}`));
+                
+                if (component.content.includes('Welcome Back')) {
+                    console.log(chalk.green('✅ Found "Welcome Back" in component'));
+                } else if (component.content.includes('Welcome')) {
+                    console.log(chalk.yellow('⚠️ Found "Welcome" but not "Welcome Back"'));
+                    
+                    // Pokaż kontekst
+                    const lines = component.content.split('\n');
+                    lines.forEach((line, index) => {
+                        if (line.toLowerCase().includes('welcome')) {
+                            console.log(chalk.white(`  Line ${index + 1}: ${line.trim()}`));
+                        }
+                    });
+                } else {
+                    console.log(chalk.red('❌ "Welcome" text NOT found in component'));
+                }
+            }
+        }
+    }
+
+    async analyzeErrorMessageIssue(components, failure) {
+        console.log(chalk.yellow('🔍 Analyzing error message issue...'));
+        
+        for (const component of components) {
+            if (component.content.toLowerCase().includes('error') || 
+                component.content.toLowerCase().includes('invalid') ||
+                component.content.toLowerCase().includes('password')) {
+                
+                console.log(chalk.blue(`📄 Checking component: ${component.name}`));
+                
+                // Szukaj komunikatów błędów
+                const errorMessages = component.content.match(/["']([^"']*(?:invalid|error|wrong|incorrect)[^"']*)["']/gi);
+                if (errorMessages) {
+                    console.log(chalk.green('🔍 Found error messages:'));
+                    errorMessages.forEach((msg, index) => {
+                        const text = msg.replace(/["']/g, '');
+                        console.log(chalk.white(`  ${index + 1}. "${text}"`));
+                    });
+                }
+            }
+        }
     }
 
     async processQuery(userInput) {

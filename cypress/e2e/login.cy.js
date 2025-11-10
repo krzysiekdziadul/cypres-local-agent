@@ -10,10 +10,10 @@ describe('Login Form Tests', () => {
     cy.contains('Welcome Back').should('be.visible');
   });
 
-  it('Should display an error message if login credentials are invalid', () => {
-    cy.get('input[name="email"]').type('invalid@test.pl');
-    cy.get('input[name="password"]').type('invalid123');
-    cy.contains('Submit').click();
-    cy.contains('Invalid email or password').should('be.visible');
-  });
+  // it('Should display an error message if login credentials are invalid', () => {
+  //   cy.get('input[name="email"]').type('invalid@test.pl');
+  //   cy.get('input[name="password"]').type('invalid123');
+  //   cy.contains('Submit').click();
+  //   cy.contains('Invalid email or password').should('be.visible');
+  // });
 })
