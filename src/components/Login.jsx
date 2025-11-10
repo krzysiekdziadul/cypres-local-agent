@@ -73,6 +73,7 @@ function Login() {
                   type="email"
                   autoComplete="email"
                   required
+                  data-cy="email-input"
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent backdrop-blur-sm transition-all duration-200"
                   placeholder="Enter your email"
                   value={email}
@@ -89,6 +90,7 @@ function Login() {
                   type="password"
                   autoComplete="current-password"
                   required
+                  data-cy="password-input"
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent backdrop-blur-sm transition-all duration-200"
                   placeholder="Enter your password"
                   value={password}
@@ -99,7 +101,7 @@ function Login() {
 
             {/* Error Message */}
             {error && (
-              <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 backdrop-blur-sm">
+              <div data-cy="error-message" className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 backdrop-blur-sm">
                 <div className="flex">
                   <div className="flex-shrink-0">
                     <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
@@ -120,6 +122,7 @@ function Login() {
               <button
                 type="submit"
                 disabled={loading}
+                data-cy="login-button"
                 className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
               >
                 {loading ? (

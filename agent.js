@@ -137,7 +137,8 @@ describe('Hello World Test', () => {
         console.log(chalk.cyan('   Examples: "uruchom login test", "uruchom test", "run tests"'));
         console.log(chalk.magenta('📊 ALL tests now generate HTML + JSON reports for analysis!'));
         console.log(chalk.yellow('🔍 NEW: Say "status" or "sprawdź" to check background test progress!'));
-        console.log(chalk.red('🤖 NEW: Agent automatically analyzes failed tests and suggests fixes!\n'));
+        console.log(chalk.red('🤖 NEW: Agent automatically analyzes failed tests and suggests fixes!'));
+        console.log(chalk.green('🔧 AUTO-FIX: Agent can automatically fix tests and rerun them!\n'));
         
         this.rl.prompt();
 
@@ -307,12 +308,13 @@ describe('Hello World Test', () => {
         console.log(chalk.gray('─'.repeat(50)));
     }
 
-    startTestMonitoring(processId, command) {
+    startTestMonitoring(processId, command, isRerun = false) {
         const startTime = Date.now();
         this.activeTestProcesses.set(processId, {
             command,
             startTime,
-            lastCheck: Date.now()
+            lastCheck: Date.now(),
+            isRerun: isRerun
         });
         
         // Start monitoring interval if not already running
@@ -392,13 +394,28 @@ describe('Hello World Test', () => {
             
             // Check if tests failed
             if (reportData.stats && reportData.stats.failures > 0) {
-                console.log(chalk.red(`❌ Tests failed! (${reportData.stats.failures} failures) Starting detailed analysis...`));
+                if (testInfo.isRerun) {
+                    console.log(chalk.red(`❌ Fixed test still failed! (${reportData.stats.failures} failures)`));
+                    console.log(chalk.yellow('🔧 The automatic fix did not resolve the issue. Manual intervention needed.'));
+                } else {
+                    console.log(chalk.red(`❌ Tests failed! (${reportData.stats.failures} failures) Starting detailed analysis...`));
+                }
                 await this.performFailureAnalysis(reportData);
             } else if (reportData.failures && reportData.failures.length > 0) {
-                console.log(chalk.red(`❌ Tests failed! (${reportData.failures.length} failures) Starting detailed analysis...`));
+                if (testInfo.isRerun) {
+                    console.log(chalk.red(`❌ Fixed test still failed! (${reportData.failures.length} failures)`));
+                    console.log(chalk.yellow('🔧 The automatic fix did not resolve the issue. Manual intervention needed.'));
+                } else {
+                    console.log(chalk.red(`❌ Tests failed! (${reportData.failures.length} failures) Starting detailed analysis...`));
+                }
                 await this.performFailureAnalysis(reportData);
             } else {
-                console.log(chalk.green('✅ All tests passed! No analysis needed.'));
+                if (testInfo.isRerun) {
+                    console.log(chalk.green('🎉 FIXED TEST PASSED! The automatic fix was successful!'));
+                    console.log(chalk.blue('✅ Test is now working correctly after auto-repair.'));
+                } else {
+                    console.log(chalk.green('✅ All tests passed! No analysis needed.'));
+                }
             }
             
         } catch (error) {
@@ -610,16 +627,31 @@ describe('Hello World Test', () => {
             const reactComponents = await this.findReactComponents();
             
             for (const failure of failures) {
-                if (failure.error.includes('Submit')) {
-                    await this.analyzeSubmitButtonIssue(reactComponents, failure);
+                console.log(chalk.gray(`🔍 Checking failure: ${failure.error.substring(0, 100)}...`));
+                
+                // Analizuj kontekst testu żeby wiedzieć gdzie szukać
+                const testContext = await this.analyzeTestContext(failure);
+                console.log(chalk.blue(`🎯 Test context: ${testContext.type} - targeting ${testContext.targetComponent}`));
+                
+                // Filtruj komponenty na podstawie kontekstu
+                const relevantComponents = this.filterComponentsByContext(reactComponents, testContext);
+                console.log(chalk.blue(`📋 Analyzing ${relevantComponents.length} relevant components (instead of all ${reactComponents.length})`));
+                
+                // Analizuj błędy data-cy selektorów
+                if (failure.error.includes('data-cy=')) {
+                    await this.analyzeDataCySelectorIssue(relevantComponents, failure);
                 }
                 
-                if (failure.error.includes('Welcome Back')) {
-                    await this.analyzeWelcomeBackIssue(reactComponents, failure);
+                if (failure.error.includes('Submit') || failure.error.includes('Dupa') || failure.error.includes('Login') || failure.error.includes('Sign In')) {
+                    await this.analyzeSubmitButtonIssue(relevantComponents, failure);
+                }
+                
+                if (failure.error.includes('Welcome Back') || failure.error.includes('Welcome')) {
+                    await this.analyzeWelcomeBackIssue(relevantComponents, failure);
                 }
                 
                 if (failure.error.includes('Invalid email or password')) {
-                    await this.analyzeErrorMessageIssue(reactComponents, failure);
+                    await this.analyzeErrorMessageIssue(relevantComponents, failure);
                 }
             }
             
@@ -628,6 +660,556 @@ describe('Hello World Test', () => {
         }
         
         console.log(chalk.gray('─'.repeat(30)));
+    }
+
+    async analyzeTestContext(failure) {
+        try {
+            // Przeczytaj plik testu żeby zrozumieć kontekst
+            const testContent = fs.readFileSync(failure.file, 'utf8');
+            
+            // Analizuj nazwę testu i kroki
+            const testNameMatch = testContent.match(/describe\(['"]([^'"]+)['"]/);
+            const testName = testNameMatch ? testNameMatch[1] : '';
+            
+            const itNameMatch = testContent.match(/it\(['"]([^'"]+)['"]/);
+            const itName = itNameMatch ? itNameMatch[1] : '';
+            
+            // Analizuj kroki testu
+            const visitMatch = testContent.match(/cy\.visit\(['"]([^'"]+)['"]\)/);
+            const visitPath = visitMatch ? visitMatch[1] : '';
+            
+            // Określ typ testu na podstawie kontekstu
+            let testType = 'unknown';
+            let targetComponent = 'any';
+            
+            if (testName.toLowerCase().includes('login') || itName.toLowerCase().includes('login') || visitPath.includes('/login')) {
+                testType = 'login';
+                targetComponent = 'Login';
+            } else if (testName.toLowerCase().includes('dashboard') || itName.toLowerCase().includes('dashboard') || visitPath.includes('/dashboard')) {
+                testType = 'dashboard';
+                targetComponent = 'Dashboard';
+            } else if (testName.toLowerCase().includes('register') || itName.toLowerCase().includes('register') || visitPath.includes('/register')) {
+                testType = 'register';
+                targetComponent = 'Register';
+            } else if (testName.toLowerCase().includes('home') || visitPath === '/' || visitPath === '') {
+                testType = 'home';
+                targetComponent = 'App';
+            }
+            
+            // Analizuj konkretne akcje w teście
+            const actions = [];
+            if (testContent.includes('cy.get(\'input[name="email"]')) actions.push('email_input');
+            if (testContent.includes('cy.get(\'input[name="password"]')) actions.push('password_input');
+            if (testContent.includes('.click()')) actions.push('button_click');
+            if (testContent.includes('Welcome')) actions.push('welcome_check');
+            
+            return {
+                type: testType,
+                targetComponent: targetComponent,
+                testName: testName,
+                itName: itName,
+                visitPath: visitPath,
+                actions: actions
+            };
+            
+        } catch (error) {
+            console.log(chalk.yellow('⚠️ Could not analyze test context:'), error.message);
+            return {
+                type: 'unknown',
+                targetComponent: 'any',
+                testName: '',
+                itName: '',
+                visitPath: '',
+                actions: []
+            };
+        }
+    }
+
+    filterComponentsByContext(components, context) {
+        // Jeśli nie znamy kontekstu, zwróć wszystkie komponenty
+        if (context.type === 'unknown') {
+            return components;
+        }
+        
+        // Filtruj komponenty na podstawie kontekstu
+        const relevantComponents = components.filter(component => {
+            const componentName = component.name.toLowerCase();
+            const componentContent = component.content.toLowerCase();
+            
+            // Zawsze uwzględnij główny komponent docelowy
+            if (componentName.includes(context.targetComponent.toLowerCase())) {
+                return true;
+            }
+            
+            // Dla testów logowania
+            if (context.type === 'login') {
+                return componentName.includes('login') || 
+                       componentName.includes('auth') ||
+                       componentContent.includes('login') ||
+                       componentContent.includes('sign in') ||
+                       componentContent.includes('email') ||
+                       componentContent.includes('password');
+            }
+            
+            // Dla testów dashboard
+            if (context.type === 'dashboard') {
+                return componentName.includes('dashboard') ||
+                       componentName.includes('home') ||
+                       componentContent.includes('welcome') ||
+                       componentContent.includes('dashboard');
+            }
+            
+            // Dla testów home/app
+            if (context.type === 'home') {
+                return componentName.includes('app') ||
+                       componentName.includes('home') ||
+                       componentName.includes('main');
+            }
+            
+            return false;
+        });
+        
+        // Jeśli nie znaleźliśmy żadnych relevantnych komponentów, zwróć wszystkie
+        return relevantComponents.length > 0 ? relevantComponents : components;
+    }
+
+    analyzeTestComments(lines, currentLineNumber) {
+        // Znajdź komentarz dla aktualnej linii
+        let currentComment = '';
+        let expectedAction = '';
+        let expectedElement = '';
+        
+        // Sprawdź linię przed aktualną (komentarz zwykle jest nad kodem)
+        if (currentLineNumber > 1) {
+            const previousLine = lines[currentLineNumber - 2];
+            if (previousLine && previousLine.trim().startsWith('//')) {
+                currentComment = previousLine.replace('//', '').trim().toLowerCase();
+            }
+        }
+        
+        // Analizuj wszystkie komentarze w teście dla kontekstu
+        const allComments = lines
+            .filter(line => line.trim().startsWith('//'))
+            .map(line => line.replace('//', '').trim().toLowerCase());
+        
+        // Określ oczekiwaną akcję na podstawie komentarza
+        if (currentComment.includes('enter email') || currentComment.includes('wpisz email')) {
+            expectedAction = 'type';
+            expectedElement = 'email input field';
+        } else if (currentComment.includes('enter password') || currentComment.includes('wpisz hasło')) {
+            expectedAction = 'type';
+            expectedElement = 'password input field';
+        } else if (currentComment.includes('click') && (currentComment.includes('login') || currentComment.includes('logowania'))) {
+            expectedAction = 'click';
+            expectedElement = 'login button';
+        } else if (currentComment.includes('click') && (currentComment.includes('logout') || currentComment.includes('wylogowania'))) {
+            expectedAction = 'click';
+            expectedElement = 'logout button';
+        } else if (currentComment.includes('verify') || currentComment.includes('sprawdź')) {
+            expectedAction = 'assertion';
+            if (currentComment.includes('welcome') || currentComment.includes('powitalny')) {
+                expectedElement = 'welcome message';
+            } else if (currentComment.includes('error') || currentComment.includes('błąd')) {
+                expectedElement = 'error message';
+            } else if (currentComment.includes('redirect') || currentComment.includes('dashboard')) {
+                expectedElement = 'dashboard page';
+            }
+        }
+        
+        // Analizuj sekwencję na podstawie wszystkich komentarzy
+        const hasEmailComment = allComments.some(c => c.includes('email') && (c.includes('enter') || c.includes('wpisz')));
+        const hasPasswordComment = allComments.some(c => c.includes('password') && (c.includes('enter') || c.includes('wpisz')));
+        const hasLoginComment = allComments.some(c => c.includes('login') && c.includes('click'));
+        const hasWelcomeComment = allComments.some(c => c.includes('welcome') || c.includes('powitalny'));
+        
+        return {
+            currentComment: currentComment,
+            expectedAction: expectedAction,
+            expectedElement: expectedElement,
+            allComments: allComments,
+            isLoginFlow: hasEmailComment && hasPasswordComment && hasLoginComment,
+            expectsWelcome: hasWelcomeComment,
+            commentSequence: {
+                hasEmailStep: hasEmailComment,
+                hasPasswordStep: hasPasswordComment,
+                hasLoginStep: hasLoginComment,
+                hasWelcomeStep: hasWelcomeComment
+            }
+        };
+    }
+
+    analyzeTestSequence(lines, currentLineNumber) {
+        const testContent = lines.join('\n').toLowerCase();
+        const linesBeforeCurrent = lines.slice(0, currentLineNumber - 1);
+        const linesAfterCurrent = lines.slice(currentLineNumber);
+        
+        // Sprawdź czy to flow logowania
+        const hasEmailInput = linesBeforeCurrent.some(line => 
+            line.includes('email') && line.includes('.type('));
+        const hasPasswordInput = linesBeforeCurrent.some(line => 
+            line.includes('password') && line.includes('.type('));
+        const isLoginFlow = hasEmailInput && hasPasswordInput;
+        
+        // Sprawdź czy użytkownik jest już zalogowany
+        const hasLoginAction = linesBeforeCurrent.some(line => 
+            line.includes('login') && line.includes('.click()'));
+        const hasDashboardNavigation = linesBeforeCurrent.some(line => 
+            line.includes('dashboard') || line.includes('welcome'));
+        const isAlreadyLoggedIn = hasLoginAction || hasDashboardNavigation;
+        
+        // Sprawdź oczekiwany rezultat
+        const expectsWelcome = linesAfterCurrent.some(line => 
+            line.includes('welcome') && line.includes('should'));
+        const expectsLogin = linesAfterCurrent.some(line => 
+            line.includes('login') && line.includes('should'));
+        const expectsDashboard = expectsWelcome; // Welcome message = dashboard
+        
+        // Sprawdź lokalizację testu
+        const visitsLogin = testContent.includes('visit(\'/login\')') || testContent.includes('visit("/login")');
+        const visitsDashboard = testContent.includes('visit(\'/dashboard\')') || testContent.includes('visit("/dashboard")');
+        
+        return {
+            isLoginFlow: isLoginFlow,
+            isAlreadyLoggedIn: isAlreadyLoggedIn,
+            expectsDashboard: expectsDashboard,
+            expectsLogin: expectsLogin,
+            visitsLogin: visitsLogin,
+            visitsDashboard: visitsDashboard,
+            hasEmailInput: hasEmailInput,
+            hasPasswordInput: hasPasswordInput
+        };
+    }
+
+    async analyzeTestActionContext(failure, selector) {
+        try {
+            // Przeczytaj plik testu żeby zrozumieć akcję
+            const testContent = fs.readFileSync(failure.file, 'utf8');
+            
+            // Znajdź linię z błędnym selektorem
+            const lines = testContent.split('\n');
+            let actionLine = '';
+            let lineNumber = 0;
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes(`data-cy="${selector}"`)) {
+                    actionLine = lines[i].trim();
+                    lineNumber = i + 1;
+                    break;
+                }
+            }
+            
+            // Analizuj typ akcji
+            let action = 'unknown';
+            let expectedType = 'any';
+            
+            if (actionLine.includes('.click()')) {
+                action = 'click';
+                expectedType = 'clickable element (button, link, etc.)';
+            } else if (actionLine.includes('.type(')) {
+                action = 'type';
+                expectedType = 'input field';
+            } else if (actionLine.includes('.should(')) {
+                action = 'assertion';
+                expectedType = 'visible element';
+            } else if (actionLine.includes('.select(')) {
+                action = 'select';
+                expectedType = 'select dropdown';
+            }
+            
+            // Analizuj kontekst na podstawie poprzednich linii
+            const previousLines = lines.slice(Math.max(0, lineNumber - 5), lineNumber - 1);
+            const context = previousLines.join(' ').toLowerCase();
+            
+            // Analizuj komentarze w teście dla lepszego zrozumienia
+            const commentContext = this.analyzeTestComments(lines, lineNumber);
+            
+            // Analizuj sekwencję akcji w teście
+            const testSequence = this.analyzeTestSequence(lines, lineNumber);
+            
+            // Określ oczekiwany typ elementu na podstawie komentarzy, kontekstu i sekwencji
+            if (commentContext.expectedElement) {
+                // Priorytet dla informacji z komentarzy
+                expectedType = commentContext.expectedElement;
+                console.log(chalk.blue(`💬 Comment indicates: "${commentContext.currentComment}" -> expecting ${expectedType}`));
+            } else if (action === 'click') {
+                if (context.includes('email') && context.includes('password')) {
+                    expectedType = 'submit/login button';
+                    
+                    // Sprawdź czy to test logowania czy wylogowania
+                    if (testSequence.isLoginFlow && !testSequence.isAlreadyLoggedIn) {
+                        expectedType = 'login/submit button (NOT logout - user not logged in yet)';
+                    }
+                } else if (context.includes('logout') || testSequence.isAlreadyLoggedIn) {
+                    expectedType = 'logout button';
+                } else if (context.includes('form') || context.includes('submit')) {
+                    expectedType = 'submit button';
+                }
+            } else if (action === 'type') {
+                if (commentContext.expectedElement === 'email input field') {
+                    expectedType = 'email input field (NOT password field)';
+                } else if (commentContext.expectedElement === 'password input field') {
+                    expectedType = 'password input field (NOT email field)';
+                }
+            }
+            
+            return {
+                action: action,
+                expectedType: expectedType,
+                actionLine: actionLine,
+                lineNumber: lineNumber,
+                context: context
+            };
+            
+        } catch (error) {
+            console.log(chalk.yellow('⚠️ Could not analyze test action context:'), error.message);
+            return {
+                action: 'unknown',
+                expectedType: 'any',
+                actionLine: '',
+                lineNumber: 0,
+                context: ''
+            };
+        }
+    }
+
+    async analyzeDataCySelectorIssue(components, failure) {
+        // Wyciągnij nieprawidłowy selektor z błędu
+        const selectorMatch = failure.error.match(/data-cy="([^"]+)"/);
+        const wrongSelector = selectorMatch ? selectorMatch[1] : null;
+        
+        if (!wrongSelector) {
+            console.log(chalk.yellow('⚠️ Could not extract data-cy selector from error'));
+            return;
+        }
+        
+        console.log(chalk.yellow(`🔍 Analyzing data-cy selector issue: "${wrongSelector}"`));
+        
+        // Analizuj kontekst akcji w teście
+        const actionContext = await this.analyzeTestActionContext(failure, wrongSelector);
+        console.log(chalk.blue(`🎯 Action context: ${actionContext.action} on "${wrongSelector}" - expected: ${actionContext.expectedType}`));
+        
+        let foundAlternatives = [];
+        
+        for (const component of components) {
+            console.log(chalk.blue(`📄 Checking component: ${component.name}`));
+            
+            // Znajdź wszystkie atrybuty data-cy w komponencie
+            const dataCyMatches = component.content.match(/data-cy=["']([^"']+)["']/g);
+            
+            if (dataCyMatches) {
+                const dataCyAttributes = dataCyMatches.map(match => {
+                    const attrMatch = match.match(/data-cy=["']([^"']+)["']/);
+                    return attrMatch ? attrMatch[1] : null;
+                }).filter(Boolean);
+                
+                console.log(chalk.green('🔍 Found data-cy attributes:'));
+                dataCyAttributes.forEach((attr, index) => {
+                    console.log(chalk.white(`  ${index + 1}. data-cy="${attr}"`));
+                });
+                
+                // Sprawdź czy nieprawidłowy selektor jest podobny do istniejących
+                const similarSelectors = dataCyAttributes.filter(attr => {
+                    return attr.toLowerCase().includes(wrongSelector.toLowerCase()) || 
+                           wrongSelector.toLowerCase().includes(attr.toLowerCase()) ||
+                           this.calculateSimilarity(wrongSelector, attr) > 0.5;
+                });
+                
+                if (similarSelectors.length > 0) {
+                    console.log(chalk.yellow('💡 Found similar selectors:'));
+                    similarSelectors.forEach(selector => {
+                        console.log(chalk.white(`  - data-cy="${selector}"`));
+                        foundAlternatives.push(selector);
+                    });
+                }
+                
+                // Dodaj wszystkie znalezione atrybuty jako potencjalne alternatywy
+                foundAlternatives.push(...dataCyAttributes);
+            } else {
+                console.log(chalk.red('❌ No data-cy attributes found in component'));
+            }
+        }
+        
+        // Automatyczne naprawianie testu z uwzględnieniem kontekstu akcji
+        if (foundAlternatives.length > 0) {
+            // Filtruj alternatywy na podstawie kontekstu akcji
+            let contextualAlternatives = this.filterAlternativesByActionContext(foundAlternatives, actionContext);
+            
+            if (contextualAlternatives.length === 0) {
+                console.log(chalk.yellow(`⚠️ No alternatives match expected type: ${actionContext.expectedType}`));
+                console.log(chalk.yellow('🔍 Available alternatives don\'t match the action context'));
+                
+                // Pokaż dlaczego nie pasują
+                console.log(chalk.red(`❌ LOGIC ERROR: Trying to ${actionContext.action} on "${wrongSelector}"`));
+                console.log(chalk.red(`   Expected: ${actionContext.expectedType}`));
+                console.log(chalk.red(`   Available: ${foundAlternatives.join(', ')}`));
+                console.log(chalk.yellow('💡 Consider changing the test logic instead of just the selector'));
+                return;
+            }
+            
+            // Wybierz najlepszą alternatywę z kontekstualnych
+            const bestAlternative = contextualAlternatives[0];
+            console.log(chalk.magenta(`🔧 AUTO-FIX: Attempting to fix test by replacing "data-cy='${wrongSelector}'" with "data-cy='${bestAlternative}'"`));
+            console.log(chalk.blue(`✅ Selected "${bestAlternative}" as it matches expected type: ${actionContext.expectedType}`));
+            await this.autoFixDataCySelector(failure.file, wrongSelector, bestAlternative);
+        } else {
+            console.log(chalk.red('❌ No suitable data-cy alternatives found'));
+        }
+    }
+
+    filterAlternativesByActionContext(alternatives, actionContext) {
+        if (actionContext.action === 'click') {
+            // Filtruj buttony na podstawie kontekstu
+            let clickableAlternatives = alternatives.filter(alt => {
+                const lowerAlt = alt.toLowerCase();
+                return lowerAlt.includes('button') || 
+                       lowerAlt.includes('btn') ||
+                       lowerAlt.includes('submit') ||
+                       lowerAlt.includes('login') ||
+                       lowerAlt.includes('logout') ||
+                       lowerAlt.includes('save') ||
+                       lowerAlt.includes('cancel') ||
+                       lowerAlt.includes('confirm');
+            });
+            
+            // Dodatkowe filtrowanie na podstawie sekwencji testu
+            if (actionContext.expectedType.includes('NOT logout')) {
+                // Usuń logout buttony jeśli użytkownik nie jest jeszcze zalogowany
+                clickableAlternatives = clickableAlternatives.filter(alt => 
+                    !alt.toLowerCase().includes('logout'));
+                console.log(chalk.yellow('🚫 Filtered out logout buttons - user not logged in yet'));
+            }
+            
+            if (actionContext.expectedType.includes('login/submit')) {
+                // Priorytet dla login/submit buttonów
+                const loginButtons = clickableAlternatives.filter(alt => 
+                    alt.toLowerCase().includes('login') || 
+                    alt.toLowerCase().includes('submit') ||
+                    alt.toLowerCase().includes('button'));
+                if (loginButtons.length > 0) {
+                    clickableAlternatives = loginButtons;
+                    console.log(chalk.blue('✅ Prioritized login/submit buttons'));
+                }
+            }
+            
+            return clickableAlternatives;
+        } else if (actionContext.action === 'type') {
+            // Dla akcji type, szukaj inputów z uwzględnieniem komentarzy
+            let inputAlternatives = alternatives.filter(alt => {
+                const lowerAlt = alt.toLowerCase();
+                return lowerAlt.includes('input') || 
+                       lowerAlt.includes('field') ||
+                       lowerAlt.includes('email') ||
+                       lowerAlt.includes('password') ||
+                       lowerAlt.includes('username') ||
+                       lowerAlt.includes('search') ||
+                       lowerAlt.includes('text');
+            });
+            
+            // Dodatkowe filtrowanie na podstawie komentarzy
+            if (actionContext.expectedType.includes('email input field')) {
+                // Priorytet dla email inputów
+                const emailInputs = inputAlternatives.filter(alt => 
+                    alt.toLowerCase().includes('email'));
+                if (emailInputs.length > 0) {
+                    inputAlternatives = emailInputs;
+                    console.log(chalk.blue('✅ Prioritized email input fields based on comment'));
+                }
+            } else if (actionContext.expectedType.includes('password input field')) {
+                // Priorytet dla password inputów
+                const passwordInputs = inputAlternatives.filter(alt => 
+                    alt.toLowerCase().includes('password'));
+                if (passwordInputs.length > 0) {
+                    inputAlternatives = passwordInputs;
+                    console.log(chalk.blue('✅ Prioritized password input fields based on comment'));
+                }
+            }
+            
+            return inputAlternatives;
+        } else if (actionContext.action === 'assertion') {
+            // Dla asercji, wszystkie elementy są OK
+            return alternatives;
+        }
+        
+        // Fallback - zwróć wszystkie
+        return alternatives;
+    }
+
+    calculateSimilarity(str1, str2) {
+        const longer = str1.length > str2.length ? str1 : str2;
+        const shorter = str1.length > str2.length ? str2 : str1;
+        
+        if (longer.length === 0) return 1.0;
+        
+        const editDistance = this.levenshteinDistance(longer, shorter);
+        return (longer.length - editDistance) / longer.length;
+    }
+
+    levenshteinDistance(str1, str2) {
+        const matrix = [];
+        
+        for (let i = 0; i <= str2.length; i++) {
+            matrix[i] = [i];
+        }
+        
+        for (let j = 0; j <= str1.length; j++) {
+            matrix[0][j] = j;
+        }
+        
+        for (let i = 1; i <= str2.length; i++) {
+            for (let j = 1; j <= str1.length; j++) {
+                if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1,
+                        matrix[i][j - 1] + 1,
+                        matrix[i - 1][j] + 1
+                    );
+                }
+            }
+        }
+        
+        return matrix[str2.length][str1.length];
+    }
+
+    async autoFixDataCySelector(testFilePath, oldSelector, newSelector) {
+        try {
+            console.log(chalk.blue(`📝 Reading test file: ${testFilePath}`));
+            
+            // Przeczytaj plik testu
+            const testContent = fs.readFileSync(testFilePath, 'utf8');
+            
+            // Zamień selektor data-cy
+            const oldPattern = `data-cy="${oldSelector}"`;
+            const newPattern = `data-cy="${newSelector}"`;
+            
+            if (!testContent.includes(oldPattern)) {
+                console.log(chalk.yellow(`⚠️ Pattern "${oldPattern}" not found in test file`));
+                return false;
+            }
+            
+            const updatedContent = testContent.replace(new RegExp(oldPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), newPattern);
+            
+            // Sprawdź czy coś się zmieniło
+            if (testContent === updatedContent) {
+                console.log(chalk.yellow(`⚠️ No changes made to test file`));
+                return false;
+            }
+            
+            // Zapisz poprawiony plik
+            fs.writeFileSync(testFilePath, updatedContent, 'utf8');
+            console.log(chalk.green(`✅ Test file updated successfully!`));
+            console.log(chalk.blue(`🔄 Changed "${oldPattern}" to "${newPattern}"`));
+            
+            // Uruchom test ponownie
+            await this.rerunTestAfterFix(testFilePath);
+            
+            return true;
+            
+        } catch (error) {
+            console.log(chalk.red('❌ Error fixing data-cy selector:'), error.message);
+            return false;
+        }
     }
 
     async findReactComponents() {
@@ -640,17 +1222,30 @@ describe('Hello World Test', () => {
         }
         
         try {
-            const files = fs.readdirSync(srcDir, { recursive: true });
-            for (const file of files) {
-                if (file.endsWith('.jsx') || file.endsWith('.js')) {
-                    const fullPath = path.join(srcDir, file);
-                    components.push({
-                        name: file,
-                        path: fullPath,
-                        content: fs.readFileSync(fullPath, 'utf8')
-                    });
+            // Rekurencyjne skanowanie folderów
+            const scanDirectory = (dir) => {
+                const items = fs.readdirSync(dir, { withFileTypes: true });
+                
+                for (const item of items) {
+                    const fullPath = path.join(dir, item.name);
+                    
+                    if (item.isDirectory()) {
+                        // Rekurencyjnie skanuj podfoldery
+                        scanDirectory(fullPath);
+                    } else if (item.isFile() && (item.name.endsWith('.jsx') || item.name.endsWith('.js'))) {
+                        // Dodaj plik React
+                        components.push({
+                            name: item.name,
+                            path: fullPath,
+                            content: fs.readFileSync(fullPath, 'utf8')
+                        });
+                    }
                 }
-            }
+            };
+            
+            scanDirectory(srcDir);
+            console.log(chalk.blue(`🔍 Found ${components.length} React components`));
+            
         } catch (error) {
             console.log(chalk.yellow('⚠️ Error reading React components:'), error.message);
         }
@@ -659,7 +1254,13 @@ describe('Hello World Test', () => {
     }
 
     async analyzeSubmitButtonIssue(components, failure) {
-        console.log(chalk.yellow('🔍 Analyzing Submit button issue...'));
+        // Wyciągnij tekst z błędu
+        const errorMatch = failure.error.match(/Expected to find content: '([^']+)'/);
+        const searchText = errorMatch ? errorMatch[1] : 'Submit';
+        
+        console.log(chalk.yellow(`🔍 Analyzing button issue for text: "${searchText}"...`));
+        
+        let foundAlternative = null;
         
         for (const component of components) {
             if (component.name.toLowerCase().includes('login') || 
@@ -689,26 +1290,37 @@ describe('Hello World Test', () => {
                     });
                 }
                 
-                // Sprawdź czy jest "Submit" w kodzie
-                if (component.content.includes('Submit')) {
-                    console.log(chalk.green('✅ Found "Submit" text in component'));
+                // Sprawdź czy szukany tekst jest w kodzie
+                if (component.content.includes(searchText)) {
+                    console.log(chalk.green(`✅ Found "${searchText}" text in component`));
                 } else {
-                    console.log(chalk.red('❌ "Submit" text NOT found in component'));
+                    console.log(chalk.red(`❌ "${searchText}" text NOT found in component`));
                     
                     // Szukaj alternatywnych tekstów
-                    const commonButtonTexts = ['Login', 'Sign In', 'Log In', 'Enter', 'Continue'];
+                    const commonButtonTexts = ['Login', 'Sign In', 'Log In', 'Enter', 'Continue', 'Submit'];
                     for (const text of commonButtonTexts) {
                         if (component.content.includes(text)) {
                             console.log(chalk.yellow(`💡 Found alternative: "${text}"`));
+                            if (!foundAlternative) {
+                                foundAlternative = text;
+                            }
                         }
                     }
                 }
             }
         }
+        
+        // Automatyczne naprawianie testu
+        if (foundAlternative && failure.file) {
+            console.log(chalk.magenta(`🔧 AUTO-FIX: Attempting to fix test by replacing "${searchText}" with "${foundAlternative}"`));
+            await this.autoFixTest(failure.file, searchText, foundAlternative);
+        }
     }
 
     async analyzeWelcomeBackIssue(components, failure) {
         console.log(chalk.yellow('🔍 Analyzing Welcome Back message issue...'));
+        
+        let foundAlternative = null;
         
         for (const component of components) {
             if (component.content.includes('Welcome') || 
@@ -722,17 +1334,29 @@ describe('Hello World Test', () => {
                 } else if (component.content.includes('Welcome')) {
                     console.log(chalk.yellow('⚠️ Found "Welcome" but not "Welcome Back"'));
                     
-                    // Pokaż kontekst
+                    // Pokaż kontekst i znajdź alternatywę
                     const lines = component.content.split('\n');
                     lines.forEach((line, index) => {
                         if (line.toLowerCase().includes('welcome')) {
                             console.log(chalk.white(`  Line ${index + 1}: ${line.trim()}`));
+                            
+                            // Spróbuj wyciągnąć tekst welcome
+                            const welcomeMatch = line.match(/["']([^"']*Welcome[^"']*)["']/i);
+                            if (welcomeMatch && !foundAlternative) {
+                                foundAlternative = welcomeMatch[1];
+                            }
                         }
                     });
                 } else {
                     console.log(chalk.red('❌ "Welcome" text NOT found in component'));
                 }
             }
+        }
+        
+        // Automatyczne naprawianie testu
+        if (foundAlternative && failure.file) {
+            console.log(chalk.magenta(`🔧 AUTO-FIX: Attempting to fix test by replacing "Welcome Back" with "${foundAlternative}"`));
+            await this.autoFixTest(failure.file, 'Welcome Back', foundAlternative);
         }
     }
 
@@ -756,6 +1380,79 @@ describe('Hello World Test', () => {
                     });
                 }
             }
+        }
+    }
+
+    async autoFixTest(testFilePath, oldText, newText) {
+        try {
+            console.log(chalk.blue(`📝 Reading test file: ${testFilePath}`));
+            
+            // Przeczytaj plik testu
+            const testContent = fs.readFileSync(testFilePath, 'utf8');
+            
+            // Sprawdź czy oldText istnieje w pliku
+            if (!testContent.includes(oldText)) {
+                console.log(chalk.yellow(`⚠️ Text "${oldText}" not found in test file`));
+                return false;
+            }
+            
+            // Zamień tekst
+            const updatedContent = testContent.replace(new RegExp(`'${oldText}'`, 'g'), `'${newText}'`)
+                                             .replace(new RegExp(`"${oldText}"`, 'g'), `"${newText}"`);
+            
+            // Sprawdź czy coś się zmieniło
+            if (testContent === updatedContent) {
+                console.log(chalk.yellow(`⚠️ No changes made to test file`));
+                return false;
+            }
+            
+            // Zapisz poprawiony plik
+            fs.writeFileSync(testFilePath, updatedContent, 'utf8');
+            console.log(chalk.green(`✅ Test file updated successfully!`));
+            console.log(chalk.blue(`🔄 Changed "${oldText}" to "${newText}"`));
+            
+            // Uruchom test ponownie
+            await this.rerunTestAfterFix(testFilePath);
+            
+            return true;
+            
+        } catch (error) {
+            console.log(chalk.red('❌ Error fixing test:'), error.message);
+            return false;
+        }
+    }
+
+    async rerunTestAfterFix(testFilePath) {
+        console.log(chalk.magenta('🚀 AUTO-RERUN: Running fixed test...'));
+        console.log(chalk.gray('─'.repeat(50)));
+        
+        try {
+            // Uruchom konkretny test
+            const relativePath = path.relative(process.cwd(), testFilePath).replace(/\\/g, '/');
+            const command = `npm run cypress:report -- --spec "${relativePath}"`;
+            
+            console.log(chalk.blue(`💻 Command: ${command}`));
+            console.log(chalk.yellow('⏳ Running test to verify fix...\n'));
+            
+            const [cmd, ...args] = command.split(' ');
+            const cypressProcess = spawn(cmd, args, {
+                stdio: 'ignore',
+                shell: true,
+                cwd: process.cwd(),
+                detached: true
+            });
+            
+            cypressProcess.unref();
+            
+            console.log(chalk.green('🚀 Fixed test started in background!'));
+            console.log(chalk.blue('📋 Process ID: ') + chalk.white(cypressProcess.pid));
+            
+            // Monitoruj ten test
+            this.startTestMonitoring(cypressProcess.pid, command, true); // true = rerun flag
+            console.log(chalk.magenta('🔍 Agent will analyze results of the fixed test!'));
+            
+        } catch (error) {
+            console.log(chalk.red('❌ Error running fixed test:'), error.message);
         }
     }
 
