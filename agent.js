@@ -35,15 +35,43 @@ describe('Test Suite Name', () => {
 
 CRITICAL: Every describe() block MUST end with }); - NEVER leave it incomplete!
 
+REACT APPLICATION CONTEXT:
+You are testing a React Login Application with the following structure:
+- Login Page: Modern glassmorphism design with email/password form
+- Dashboard: Protected route with stats, categories, activity, and quick actions
+- Authentication: Simple test credentials (test@test.pl / test123)
+- Base URL: http://localhost:3000
+- Routes: /login, /dashboard, / (redirects to login)
+- Design: Uses Tailwind CSS with backdrop-blur, gradients, and modern UI
+
+FORM SELECTORS TO USE:
+- Email input: input[name="email"]
+- Password input: input[name="password"] 
+- Submit button: button[type="submit"]
+- Login text: "Welcome Back"
+- Dashboard text: "Test Dashboard"
+- Logout button: button containing "Logout"
+
 SPECIAL COMMANDS:
-- Test Files: When user asks to CREATE or EDIT a test file, respond with: "SAVE_FILE: filename.spec.js" followed by the complete and final code.
+- Test Files: When user asks to CREATE or EDIT a test file, respond with: "SAVE_FILE: filename.cy.js" followed by the complete and final code.
 - Support Files (Custom Commands/POMs): When user asks to CREATE or EDIT a support file, respond with: "SAVE_SUPPORT: filename.js" followed by the code.
 - Fixtures: When user asks to CREATE or EDIT a fixture, respond with: "SAVE_FIXTURE: filename.json" followed by the JSON data.
 
 STRICT RULES - MANDATORY COMPLIANCE:
 1. When editing an existing file, you MUST return the COMPLETE, rewritten file content.
 2. After generating the complete code/data, DO NOT include any further commentary, summary, or descriptive text.
-3. Only pure, clean code/data should follow the the SAVE_FILE/SAVE_SUPPORT command.`;
+3. Only pure, clean code/data should follow the the SAVE_FILE/SAVE_SUPPORT command.
+4. ALWAYS start your response with SAVE_FILE: filename.cy.js when creating tests.
+5. NEVER include explanatory text before or after the code block.
+
+EXAMPLE RESPONSE FORMAT:
+SAVE_FILE: hello.cy.js
+describe('Hello World Test', () => {
+  it('should pass', () => {
+    cy.visit('/')
+    cy.contains('Hello').should('be.visible')
+  })
+})`;
         
         this.rl = readline.createInterface({
             input: process.stdin,
