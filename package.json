@@ -16,7 +16,7 @@
     "pull-model": "docker exec ollama-codellama ollama pull qwen2.5-coder:1.5b",
     "cypress:open": "cypress open",
     "cypress:run": "cypress run",
-    "cypress:report": "cypress run --reporter cypress-multi-reporters --reporter-options configFile=reporter-config.json",
+    "cypress:report": "cypress run",
     "test": "cypress run"
   },
   "keywords": [
